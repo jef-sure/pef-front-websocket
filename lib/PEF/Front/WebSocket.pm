@@ -220,7 +220,7 @@ version 2.0.14+ meets all of them with C<psgi-enable-psgix-io = true>.
  
 =head1 WEBSOCKET EVENT METHODS
  
-=head2 on_message($self, $message, $type)
+=head2 on_message($message, $type)
 
 A subroutine that is called on new message from client.
 
@@ -325,7 +325,7 @@ Returns true when socket is closed or there's some error on it.
   # wstest.ini
   [uwsgi]
   plugins = coroae
-  chdir = chdir = /$PROJECT_DIR
+  chdir = /$PROJECT_DIR
   logger = file:log/demo.log
   psgi = bin/startup.pl
   master = true
