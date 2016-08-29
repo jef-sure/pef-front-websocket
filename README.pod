@@ -48,9 +48,9 @@ C<psgix.io> environment holds a valid raw IO socket object. See L<PSGI::Extensio
 L<uwsgi|https://uwsgi-docs.readthedocs.io/en/latest/PSGIquickstart.html> 
 version 2.0.14+ meets all of them with C<psgi-enable-psgix-io = true>.
  
-=head1 WEBSOCKET EVENT METHODS
+=head1 WEBSOCKET INTERFACE METHODS
  
-=head2 on_message($self, $message, $type)
+=head2 on_message($message, $type)
 
 A subroutine that is called on new message from client.
 
@@ -64,7 +64,7 @@ client after some successful send.
 A subroutine that is called each time it establishes a new
 WebSocket connection to a client.
 
-=head2 on_error()
+=head2 on_error($message)
 
 A subroutine that is called when some error
 happens while processing a request.
@@ -72,12 +72,17 @@ happens while processing a request.
 =head2 on_close()
  
 A subroutine that is called on WebSocket close event.
+
+=head2 no_compression()
+
+When defined and true then no compression will be used even when it 
+supported by browser and server.
  
 =head1 INHERITED METHODS
 
-Every WebSocket class is derived from C<PEF::Front::Websocket::Interface>
-which is derived from C<PEF::Front::Websocket::Base>. Even when you don't
-derive your class from C<PEF::Front::Websocket::Interface> explicitly, 
+Every WebSocket class is derived from C<PEF::Front::Websocket::Base>
+which is derived from C<PEF::Front::Websocket::Interface>. Even when you don't
+derive your class from C<PEF::Front::Websocket::Base> explicitly, 
 this class will be added automatically to hierarchy.
 
 =head2 send($buffer[, $type])
@@ -91,6 +96,36 @@ Closes WebSocket.
 =head2 is_defunct()
 
 Returns true when socket is closed or there's some error on it.
+
+=head1 CONFIGURATION
+
+=over
+
+=item cfg_websocket_heartbeat_interval
+
+WebSocket connection has to be B<ping>-ed to stay alive. 
+This paramters specifies a positive number of seconds for B<ping> interval.
+Default is 30.
+
+=item cfg_websocket_max_payload_size
+
+Maximum payload size for incoming messages in bytes.
+Default is 262144.
+
+=item cfg_websocket_deflate_minimum_size
+
+Minimum message size for deflate compression. If message size is less than
+this value then it will not be compressed. Default is 96.
+
+=item cfg_websocket_deflate_window_bits
+
+WindowBits parameter for deflate compression. Default is 12.
+
+=item cfg_websocket_deflate_memory_level
+
+MemLevel parameter for deflate compression. Default is 5.
+
+=back
 
 =head1 EXAMPLE
 
@@ -155,7 +190,7 @@ Returns true when socket is closed or there's some error on it.
   # wstest.ini
   [uwsgi]
   plugins = coroae
-  chdir = chdir = /$PROJECT_DIR
+  chdir = /$PROJECT_DIR
   logger = file:log/demo.log
   psgi = bin/startup.pl
   master = true

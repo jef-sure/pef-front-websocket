@@ -4,18 +4,19 @@ use Coro;
 use Coro::AnyEvent;
 use AnyEvent::Handle;
 use Protocol::WebSocket::Handshake::Server;
+use Compress::Raw::Zlib qw(Z_SYNC_FLUSH Z_OK Z_STREAM_END);
 use PEF::Front v0.09;
 use PEF::Front::Route;
 use PEF::Front::Config;
 use PEF::Front::Response;
 use PEF::Front::NLS;
-use PEF::Front::WebSocket::Interface;
+use PEF::Front::WebSocket::Base;
 use Errno;
 
 use warnings;
 use strict;
 
-our $VERSION = "0.01";
+our $VERSION = "0.02";
 use Data::Dumper;
 
 sub handler {
@@ -65,15 +66,39 @@ sub handler {
 	return [];
 }
 
-my $websocket_heartbeat_period = 30;
+my %config = (
+	heartbeat_interval   => 30,
+	max_payload_size     => 262144,
+	deflate_minimum_size => 96,
+	deflate_window_bits  => 12,
+	deflate_memory_level => 5,
+);
+
+sub deflate_minimum_size () {$config{deflate_minimum_size}}
 
 BEGIN {
 	PEF::Front::Route::add_prefix_handler('ws', \&handler);
-	no strict 'refs';
-	no warnings 'once';
-	if (*PEF::Front::Config::cfg_websocket_heartbeat_period{CODE}) {
-		$websocket_heartbeat_period = PEF::Front::Config::cfg_websocket_heartbeat_period();
+	for my $cfg_key (keys %config) {
+		my $ref = "PEF::Front::Config"->can("cfg_websocket_" . $cfg_key);
+		$config{$cfg_key} = $ref->() if $ref;
 	}
+}
+
+sub _hs_to_string {
+	my ($hs, $more_headers) = @_;
+	my $status = $hs->res->status;
+	my $string = '';
+	$string .= "HTTP/1.1 $status WebSocket Protocol Handshake\x0d\x0a";
+	my $headers = $hs->res->headers;
+	push @$headers, @$more_headers if $more_headers && ref $more_headers eq 'ARRAY';
+	for (my $i = 0; $i < @$headers; $i += 2) {
+		my $key   = $headers->[$i];
+		my $value = $headers->[$i + 1];
+		$string .= "$key: $value\x0d\x0a";
+	}
+	$string .= "\x0d\x0a";
+	$string .= $hs->res->body;
+	return $string;
 }
 
 sub prepare_websocket {
@@ -87,16 +112,36 @@ sub prepare_websocket {
 		result => 'INTERR',
 		answer => 'Websocket protocol handshake error'
 	};
-	if (not $class->isa('PEF::Front::WebSocket::Interface')) {
+	if (not $class->isa('PEF::Front::WebSocket::Base')) {
 		no strict 'refs';
-		unshift @{$class . "::ISA"}, 'PEF::Front::WebSocket::Interface';
+		unshift @{$class . "::ISA"}, 'PEF::Front::WebSocket::Base';
 	}
 	my $ws = bless {
-		handle  => AnyEvent::Handle->new(fh => $fh),
-		request => $request
+		handle    => AnyEvent::Handle->new(fh => $fh),
+		request   => $request,
+		handshake => $hs,
 	}, $class;
-	my $frame = Protocol::WebSocket::Frame->new;
-	$ws->{handle}->push_write($hs->to_string);
+	my $exts = $request->header('Sec-WebSocket-Extensions');
+	$exts = [$exts] if not ref $exts;
+	my $is_deflate = 0;
+	for my $e (@$exts) {
+		if ($e =~ /permessage-deflate/i) {
+			$is_deflate = 1;
+			last;
+		}
+	}
+	my $more_headers;
+	if ($is_deflate && (!$ws->can("no_compression") || !$ws->no_compression)) {
+		$ws->{deflate} ||= Compress::Raw::Zlib::Deflate->new(
+			AppendOutput => 1,
+			MemLevel     => $config{deflate_memory_level},
+			WindowBits   => -$config{deflate_window_bits},
+		);
+		$ws->{inflate} ||= Compress::Raw::Zlib::Inflate->new(WindowBits => -15);
+		$more_headers = ['Sec-WebSocket-Extensions', 'permessage-deflate'];
+	}
+	my $finish_handshake = _hs_to_string($hs, $more_headers);
+	$ws->{handle}->push_write($finish_handshake);
 	$ws->{handle}->on_drain(
 		sub {
 			$ws->{handle}->on_drain(
@@ -112,10 +157,11 @@ sub prepare_websocket {
 
 sub setup_websocket {
 	my $ws       = $_[0];
-	my $frame    = Protocol::WebSocket::Frame->new;
+	my $frame    = Protocol::WebSocket::Frame->new(max_payload_size => $config{max_payload_size});
 	my $on_error = sub {
+		my ($handle, $fatal, $message) = @_;
 		$ws->{error} = 1;
-		$ws->on_error;
+		$ws->on_error($message);
 	};
 	$ws->{handle}->on_eof($on_error);
 	$ws->{handle}->on_error($on_error);
@@ -131,13 +177,24 @@ sub setup_websocket {
 			if ($frame->is_ping) {
 				$ws->{handle}->push_write(
 					Protocol::WebSocket::Frame->new(
-						type   => 'pong',
-						buffer => $message
+						type    => 'pong',
+						buffer  => $message,
+						version => $ws->{handshake}->version,
 					)->to_bytes
 				);
 				return;
 			}
 			if ($message && $frame->fin && ($frame->is_binary || $frame->is_text)) {
+				if ((my $inflate = $ws->{inflate}) && $frame->rsv->[0]) {
+					my $status = $inflate->inflate(\($message .= "\x00\x00\xff\xff"), my $out);
+					if ($status != Z_OK && $status != Z_STREAM_END) {
+						cfg_log_level_error
+							&& $ws->{request}->logger->({level => "error", message => "websocket inflate error"});
+						$ws->on_error("inflate error");
+						return;
+					}
+					$message = $out;
+				}
 				my $type = 'binary';
 				if ($frame->is_text) {
 					utf8::decode($message);
@@ -149,13 +206,14 @@ sub setup_websocket {
 		}
 	);
 	$ws->{heartbeat} = AnyEvent->timer(
-		interval => $websocket_heartbeat_period,
+		interval => $config{heartbeat_interval},
 		cb       => sub {
 			if ($ws->{handle} && !$ws->is_defunct) {
 				$ws->{handle}->push_write(
 					Protocol::WebSocket::Frame->new(
-						type   => 'ping',
-						buffer => 'ping'
+						type    => 'ping',
+						buffer  => 'ping',
+						version => $ws->{handshake}->version,
 					)->to_bytes
 				);
 			}
@@ -218,7 +276,7 @@ C<psgix.io> environment holds a valid raw IO socket object. See L<PSGI::Extensio
 L<uwsgi|https://uwsgi-docs.readthedocs.io/en/latest/PSGIquickstart.html> 
 version 2.0.14+ meets all of them with C<psgi-enable-psgix-io = true>.
  
-=head1 WEBSOCKET EVENT METHODS
+=head1 WEBSOCKET INTERFACE METHODS
  
 =head2 on_message($message, $type)
 
@@ -234,7 +292,7 @@ client after some successful send.
 A subroutine that is called each time it establishes a new
 WebSocket connection to a client.
 
-=head2 on_error()
+=head2 on_error($message)
 
 A subroutine that is called when some error
 happens while processing a request.
@@ -242,12 +300,17 @@ happens while processing a request.
 =head2 on_close()
  
 A subroutine that is called on WebSocket close event.
+
+=head2 no_compression()
+
+When defined and true then no compression will be used even when it 
+supported by browser and server.
  
 =head1 INHERITED METHODS
 
-Every WebSocket class is derived from C<PEF::Front::Websocket::Interface>
-which is derived from C<PEF::Front::Websocket::Base>. Even when you don't
-derive your class from C<PEF::Front::Websocket::Interface> explicitly, 
+Every WebSocket class is derived from C<PEF::Front::Websocket::Base>
+which is derived from C<PEF::Front::Websocket::Interface>. Even when you don't
+derive your class from C<PEF::Front::Websocket::Base> explicitly, 
 this class will be added automatically to hierarchy.
 
 =head2 send($buffer[, $type])
@@ -261,6 +324,36 @@ Closes WebSocket.
 =head2 is_defunct()
 
 Returns true when socket is closed or there's some error on it.
+
+=head1 CONFIGURATION
+
+=over
+
+=item cfg_websocket_heartbeat_interval
+
+WebSocket connection has to be B<ping>-ed to stay alive. 
+This paramters specifies a positive number of seconds for B<ping> interval.
+Default is 30.
+
+=item cfg_websocket_max_payload_size
+
+Maximum payload size for incoming messages in bytes.
+Default is 262144.
+
+=item cfg_websocket_deflate_minimum_size
+
+Minimum message size for deflate compression. If message size is less than
+this value then it will not be compressed. Default is 96.
+
+=item cfg_websocket_deflate_window_bits
+
+WindowBits parameter for deflate compression. Default is 12.
+
+=item cfg_websocket_deflate_memory_level
+
+MemLevel parameter for deflate compression. Default is 5.
+
+=back
 
 =head1 EXAMPLE
 
@@ -350,4 +443,3 @@ This module is free software; you can redistribute it and/or modify it under
 the same terms as Perl itself.
 
 =cut
- 

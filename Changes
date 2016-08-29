@@ -1,0 +1,5 @@
+0.02 Mon, 29 Aug 2016 19:53:15 GMT
+         - add permessage-deflate
+         - more configuration values
+         - fixes here and there
+

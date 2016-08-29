@@ -2,7 +2,7 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
 	NAME             => "PEF::Front::WebSocket",
 	AUTHOR           => "Anton Petrusevich",
-	VERSION          => "0.01",
+	VERSION          => "0.02",
 	LICENSE          => "artistic_2",
 	INSTALLDIRS      => 'site',
 	MIN_PERL_VERSION => "5.014000",
@@ -25,7 +25,7 @@ WriteMakefile(
 		'Data::Dumper'        => 0,
 		'Errno'               => 0,
 		'PEF::Front'          => 0.09,
-		'Protocol::WebSocket' => 0.19,
+		'Protocol::WebSocket' => 0.20,
 	},
 	TEST_REQUIRES => {'Test::More' => 0},
 	test          => {TESTS        => "t/*.t"},

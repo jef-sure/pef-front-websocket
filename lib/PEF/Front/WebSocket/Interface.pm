@@ -1,5 +1,4 @@
 package PEF::Front::WebSocket::Interface;
-use base 'PEF::Front::WebSocket::Base';
 use warnings;
 use strict;
 

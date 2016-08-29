@@ -1,5 +1,7 @@
 package PEF::Front::WebSocket::Base;
+use base 'PEF::Front::WebSocket::Interface';
 use Protocol::WebSocket::Frame;
+use Compress::Raw::Zlib 'Z_SYNC_FLUSH';
 use warnings;
 use strict;
 
@@ -11,7 +13,12 @@ sub close {
 	$handle->on_eof;
 	$handle->on_read;
 	if (not $self->{error} and not $self->{closed}) {
-		$handle->push_write(Protocol::WebSocket::Frame->new(type => 'close')->to_bytes);
+		$handle->push_write(
+			Protocol::WebSocket::Frame->new(
+				type    => 'close',
+				version => $self->{handshake}->version
+			)->to_bytes
+		);
 		$handle->push_shutdown;
 	}
 	$self->on_close if not $self->{closed};
@@ -32,10 +39,23 @@ sub send {
 		utf8::encode($message);
 	}
 	$self->{expected_drain} = 1;
+	my @rsv = ();
+	if (   ($type eq 'text' || $type eq 'binary')
+		&& length($message) >= PEF::Front::WebSocket::deflate_minimum_size()
+		&& (my $deflate = $self->{deflate}))
+	{
+		$deflate->deflate(\$message, my $out);
+		$deflate->flush($out, Z_SYNC_FLUSH);
+		$message = substr($out, 0, -4);
+		@rsv = (rsv => [1, 0, 0]);
+	}
 	$self->{handle}->push_write(
 		Protocol::WebSocket::Frame->new(
-			buffer => $message,
-			type   => $type
+			buffer           => $message,
+			type             => $type,
+			max_payload_size => length($message),
+			version          => $self->{handshake}->version,
+			@rsv
 		)->to_bytes
 	);
 	return;
