@@ -8,8 +8,6 @@ use AnyEvent::Handle;
 use CBOR::XS;
 use Scalar::Util qw'weaken refaddr';
 
-use constant CONFIRMATION => -1;
-
 sub publish {
 	my ($self, $queue, $id_message, $message) = @_;
 	$self->{handle}->push_write(
@@ -26,11 +24,7 @@ sub subscribe {
 	my ($self, $queue, $client, $last_id) = @_;
 	my $id_client = refaddr $client;
 	return if exists $self->{queues}{$queue}{$id_client};
-	my $cv = AnyEvent->condvar;
-	$self->{queues}{$queue}{$id_client} = sub {
-		$self->{queues}{$queue}{$id_client} = undef;
-		$cv->send;
-	};
+	$self->{queues}{$queue}{$id_client} = undef;
 	$self->{clients}{$id_client} = $client;
 	$self->{handle}->push_write(
 		cbor => {
@@ -40,18 +34,13 @@ sub subscribe {
 			last_id   => $last_id,
 		}
 	);
-	$cv->recv;
 }
 
 sub unsubscribe {
 	my ($self, $queue, $client) = @_;
 	my $id_client = refaddr $client;
 	return if not exists $self->{queues}{$queue}{$id_client};
-	my $cv = AnyEvent->condvar;
-	$self->{queues}{$queue}{$id_client} = sub {
-		delete $self->{queues}{$queue}{$id_client};
-		$cv->send;
-	};
+	$self->{queues}{$queue}{$id_client} = undef;
 	$self->{handle}->push_write(
 		cbor => {
 			command   => 'unsubscribe',
@@ -59,7 +48,6 @@ sub unsubscribe {
 			id_client => $id_client,
 		}
 	);
-	$cv->recv;
 }
 
 sub unregister_client {
@@ -97,16 +85,10 @@ sub on_queue {
 		}
 	);
 	my ($queue, $id_message, $message, $cidref) = @$cmd;
-	if ($id_message == CONFIRMATION) {
-		if ($self->{queues}{$queue}{$cidref->[0]}) {
-			$self->{queues}{$queue}{$cidref->[0]}();
-		}
-	} else {
-		for my $cid (@$cidref) {
-			my $client = $self->{clients}{$cid};
-			if (exists $self->{queues}{$queue}{$cid}) {
-				$client->on_queue($queue, $id_message, $message);
-			}
+	for my $cid (@$cidref) {
+		my $client = $self->{clients}{$cid};
+		if (exists $self->{queues}{$queue}{$cid}) {
+			$client->on_queue($queue, $id_message, $message);
 		}
 	}
 }

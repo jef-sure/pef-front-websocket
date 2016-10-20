@@ -54,9 +54,12 @@ sub add_client {
 sub publish {
 	my ($self, $id_message, $message) = @_;
 	if ($id_message != 0) {
+
 		# упрядочиваем сообщения по $id_message
 		my $last_index = @{$self->{queue}} - 1;
-		if (!@{$self->{queue}} || $self->{queue}[$last_index][0] < $id_message) {
+		if (!@{$self->{queue}}
+			|| $self->{queue}[$last_index][0] < $id_message)
+		{
 			push @{$self->{queue}}, [$id_message, $message, time];
 		} else {
 			if ($self->{queue}[0][0] > $id_message) {
@@ -83,7 +86,8 @@ sub publish {
 
 sub remove_client {
 	my ($self, $client) = @_;
-	delete $self->{clients}{$client};
+	my $lcid      = refaddr $client;
+	delete $self->{clients}{$lcid};
 	if (!%{$self->{clients}}) {
 		weaken $self;
 		$self->{destroy_timer} = AnyEvent->timer(
@@ -144,8 +148,6 @@ use AnyEvent::Socket;
 use CBOR::XS;
 use Scalar::Util 'weaken';
 
-use constant CONFIRMATION => -1;
-
 sub subscribe_client_to_queue {
 	my ($self, $handle, $cmd) = @_;
 	my $queue   = $cmd->{queue};
@@ -155,15 +157,6 @@ sub subscribe_client_to_queue {
 	my $client  = ($self->{groups}{$group}{clients}{$cid} ||= PEF::Front::WebSocket::QueueServer::Client->new($group, $cid));
 	my $qo      = $self->{queues}{$queue} || $self->register_queue($queue);
 	$client->subscribe($qo, $last_id);
-	$self->_transfer(
-		$queue,
-		CONFIRMATION,
-		{   command => 'subscribe',
-			queue   => $queue
-		},
-		$group,
-		[$cid]
-	);
 }
 
 sub unsubscribe_client_from_queue {
@@ -174,15 +167,6 @@ sub unsubscribe_client_from_queue {
 	my $client = $self->{groups}{$group}{clients}{$cid};
 	my $qo     = $self->{queues}{$queue};
 	$client->unsubscribe($qo) if $client && $qo;
-	$self->_transfer(
-		$queue,
-		CONFIRMATION,
-		{   command => 'unsubscribe',
-			queue   => $queue
-		},
-		$group,
-		[$cid]
-	);
 }
 
 sub publish_to_queue {
@@ -304,6 +288,8 @@ sub reload_message {
 	$_[0]{reload_message};
 }
 
+use Data::Dumper;
+
 sub run {
 	my ($slave, $tcp_address, $tcp_port, $no_client_expiration, $message_expiration, $reload_message) = @_;
 	if ($reload_message) {
@@ -320,9 +306,15 @@ sub run {
 		reload_message       => $reload_message
 	);
 	my $handle = AnyEvent::Handle->new(
-		on_error => sub {exit},
-		on_eof   => sub {exit},
-		fh       => $slave,
+		on_error => sub {
+			exit;
+		},
+		on_eof => sub {
+			exit;
+		},
+		on_read => sub {
+		},
+		fh => $slave,
 	);
 	EV::run();
 }
