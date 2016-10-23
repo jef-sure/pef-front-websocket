@@ -19,6 +19,16 @@ use strict;
 our $VERSION = "0.02";
 use Data::Dumper;
 
+my $server_slave;
+
+sub import {
+	my ($package, @args) = @_;
+	if (!$server_slave && grep {$_ eq "queue_server"} @args) {
+		require AnyEvent::Fork;
+		start_queue_server();
+	}
+}
+
 sub handler {
 	my ($request, $context) = @_;
 	my $mrf = $context->{method};
@@ -67,11 +77,16 @@ sub handler {
 }
 
 my %config = (
-	heartbeat_interval   => 30,
-	max_payload_size     => 262144,
-	deflate_minimum_size => 96,
-	deflate_window_bits  => 12,
-	deflate_memory_level => 5,
+	heartbeat_interval         => 30,
+	max_payload_size           => 262144,
+	deflate_minimum_size       => 96,
+	deflate_window_bits        => 12,
+	deflate_memory_level       => 5,
+	queue_server_port          => cfg_project_dir() . "/var/cache/websocket_queue_server.sock",
+	queue_server_address       => "unix/",
+	queue_no_client_expiration => 900,
+	queue_message_expiration   => 3600,
+	queue_reload_message       => {result => 'RELOAD'},
 );
 
 sub deflate_minimum_size () {$config{deflate_minimum_size}}
@@ -220,6 +235,20 @@ sub setup_websocket {
 		}
 	);
 	$ws;
+}
+
+sub start_queue_server {
+	my $cv = AnyEvent->condvar();
+	my $server = AnyEvent::Fork->new->require('PEF::Front::WebSocket::QueueServer')->send_arg("", "", "", "", "")->run(
+		'PEF::Front::WebSocket::QueueServer::run',
+		sub {
+			$server_slave = $_[0];
+			$cv->send;
+		}
+	);
+	$cv->recv;
+	$cv = AnyEvent->condvar();
+	
 }
 
 1;

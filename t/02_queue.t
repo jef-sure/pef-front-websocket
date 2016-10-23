@@ -35,8 +35,6 @@ use PEF::Front::WebSocket::QueueClient;
 
 use Data::Dumper;
 
-use Coro;
-use Coro::AnyEvent;
 use AnyEvent;
 
 my $cv = AnyEvent->condvar();
@@ -93,12 +91,12 @@ $tt = AnyEvent->timer(
 				is_deeply($clients[2]{test}[2]->result, ["test2", 3, {message => 'test message 3'}], 't 3.5');
 				$tt = AnyEvent->timer(
 					after => 0.05,
-					cb    => unblock_sub {
+					cb    => sub {
 						$clients[1]{client}->unsubscribe("test2", $clients[1]{test}[2]);
 						$clients[1]{client}->publish("test2", 4, {message => 'test message 4'});
 						$tt = AnyEvent->timer(
 							after => 0.05,
-							cb    => unblock_sub {
+							cb    => sub {
 								is_deeply($clients[0]{test}[3]->result, ["test2", 4, {message => 'test message 4'}], 't 4.1');
 								is_deeply($clients[1]{test}[3]->result, ["test2", 4, {message => 'test message 4'}], 't 4.2');
 								is_deeply($clients[2]{test}[3]->result, ["test2", 4, {message => 'test message 4'}], 't 4.3');
