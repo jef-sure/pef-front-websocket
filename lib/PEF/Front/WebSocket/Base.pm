@@ -26,6 +26,15 @@ sub close {
 	$self->{closed} = 1;
 }
 
+sub publish {
+}
+
+sub subscribe {
+}
+
+sub unsubscribe {
+}
+
 sub is_defunct {
 	my $self = $_[0];
 	return $self->{error} || $self->{closed} || 0;

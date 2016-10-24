@@ -316,6 +316,7 @@ sub run {
 		},
 		fh => $slave,
 	);
+	$handle->push_write("1");
 	EV::run();
 }
 

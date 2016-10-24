@@ -53,6 +53,7 @@ sub unsubscribe {
 sub unregister_client {
 	my ($self, $client) = @_;
 	my $id_client = refaddr $client;
+	return if not $self->{clients}{$id_client};
 	delete $self->{clients}{$id_client};
 	for my $queue (keys %{$self->{queues}}) {
 		delete $self->{queues}{$queue}{$id_client};
