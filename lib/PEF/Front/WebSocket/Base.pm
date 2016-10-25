@@ -12,6 +12,7 @@ sub close {
 		$qclient->unregister_client($self);
 	}
 	my $handle = $self->{handle};
+	return if ! $handle;
 	$handle->on_drain;
 	$handle->on_eof;
 	$handle->on_read;
@@ -39,7 +40,7 @@ sub publish {
 sub subscribe {
 	my ($self, $queue, $last_id) = @_;
 	if (my $qclient = PEF::Front::WebSocket::queue_server_client()) {
-		$qclient->publish($queue, $self, $last_id);
+		$qclient->subscribe($queue, $self, $last_id);
 	}
 }
 

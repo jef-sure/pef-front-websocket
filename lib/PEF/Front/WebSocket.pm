@@ -38,23 +38,6 @@ my %config = (
 	queue_reload_message       => {result => 'RELOAD'},
 );
 
-sub queue_server_client {
-	return if !$server_client || $server_client_pid != $$;
-	return $server_client;
-}
-
-sub handler {
-	if ($server_slave && !queue_server_client) {
-		$server_client = PEF::Front::WebSocket::QueueClient->new(
-			address => $config{queue_server_address},
-			port    => $config{queue_server_port}
-		);
-		$server_client_pid = $$;
-	}
-	PEF::Front::Route::add_prefix_handler('ws', \&real_handler);
-	goto &real_handler;
-}
-
 BEGIN {
 	PEF::Front::Route::add_prefix_handler('ws', \&handler);
 	for my $cfg_key (keys %config) {
@@ -75,7 +58,7 @@ sub import {
 	}
 }
 
-sub real_handler {
+sub handler {
 	my ($request, $context) = @_;
 	my $mrf = $context->{method};
 	$mrf =~ s/ ([[:lower:]])/\u$1/g;
@@ -101,7 +84,7 @@ sub real_handler {
 				};
 			}
 		}
-		$websocket = prepare_websocket($class, $request);
+		$websocket = prepare_websocket($class, $request, $context);
 	};
 	if ($@) {
 		my $response = $@;
@@ -147,7 +130,7 @@ sub _hs_to_string {
 }
 
 sub prepare_websocket {
-	my ($class, $request) = @_;
+	my ($class, $request, $context) = @_;
 	my $fh = $request->env->{'psgix.io'}
 		or die {
 		result => 'INTERR',
@@ -167,6 +150,7 @@ sub prepare_websocket {
 		handle    => AnyEvent::Handle->new(fh => $fh),
 		request   => $request,
 		handshake => $hs,
+		context   => $context,
 	}, $class;
 	my $exts = $request->header('Sec-WebSocket-Extensions');
 	$exts = [$exts] if not ref $exts;
@@ -191,6 +175,29 @@ sub prepare_websocket {
 	}
 	my $finish_handshake = _hs_to_string($hs, $more_headers);
 	$ws->{handle}->push_write($finish_handshake);
+	$ws;
+}
+
+sub queue_server_client {
+	return if !$server_client || $server_client_pid != $$;
+	return $server_client;
+}
+
+sub setup_websocket {
+	if ($server_slave && !queue_server_client) {
+		$server_client = PEF::Front::WebSocket::QueueClient->new(
+			address => $config{queue_server_address},
+			port    => $config{queue_server_port}
+		);
+		$server_client_pid = $$;
+	}
+	no warnings 'redefine';
+	*setup_websocket = \&real_setup_websocket;
+	goto &real_setup_websocket;
+}
+
+sub real_setup_websocket {
+	my $ws       = $_[0];
 	$ws->{handle}->on_drain(
 		sub {
 			$ws->{handle}->on_drain(
@@ -201,11 +208,6 @@ sub prepare_websocket {
 			$ws->on_open;
 		}
 	);
-	$ws;
-}
-
-sub setup_websocket {
-	my $ws       = $_[0];
 	my $frame    = Protocol::WebSocket::Frame->new(max_payload_size => $config{max_payload_size});
 	my $on_error = sub {
 		my ($handle, $fatal, $message) = @_;
