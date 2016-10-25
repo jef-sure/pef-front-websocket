@@ -86,7 +86,7 @@ sub publish {
 
 sub remove_client {
 	my ($self, $client) = @_;
-	my $lcid      = refaddr $client;
+	my $lcid = refaddr $client;
 	delete $self->{clients}{$lcid};
 	if (!%{$self->{clients}}) {
 		weaken $self;
@@ -321,83 +321,3 @@ sub run {
 }
 
 1;
-
-__END__
-
-=head1 NAME
-
-
-=head1 SYNOPSIS
-
-
-=head1 DESCRIPTION
-
-
-
-=head1 METHOD
-
-=head1 new (@options)
-
-Available C<%options> are:
-
-=over 4
-
-=item port => 'Int | Str'
-
-Listening port or path to unix socket (Required)
-
-=item address => 'Str'
-
-Bind address. Default to undef: This means server binds all interfaces by default.
-
-If you want to use unix socket, this option should be set to "unix/"
-
-=item on_error => $cb->($handle, $fatal, $message)
-
-Error callback which is called when some errors occured.
-This is actually L<AnyEvent::Handle>'s on_error.
-
-=item on_eof => $cb->($handle)
-
-EOF callback. same as L<AnyEvent::Handle>'s on_eof callback.
-
-=item on_accept => $cb->($fh, $host, $port)
-
-=item on_dispatch => $cb->($indicator, $handle, $request);
-
-=item handler_options => 'HashRef'
-
-Hashref options of L<AnyEvent::Handle> that is used to handle client connections.
-
-=back
-
-=head2 reg_cb (%callbacks)
-
-=head3 callback arguments
-
-MessagePack RPC callback arguments consists of C<$result_cv>, and request C<@params>.
-
-    my ($result_cv, @params) = @_;
-
-C<$result_cv> is L<AnyEvent::MPRPC::CondVar> object.
-Callback must be call C<<$result_cv->result>> to return result or C<<$result_cv->error>> to return error.
-
-If C<$result_cv> is not defined, it is notify request, so you don't have to return response. See L<AnyEvent::MPRPC::Client> notify method.
-
-C<@params> is same as request parameter.
-
-=head1 AUTHOR
-
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright (c) 2016 by .
-
-This program is free software; you can redistribute
-it and/or modify it under the same terms as Perl itself.
-
-The full text of the license can be found in the
-LICENSE file included with this module.
-
-=cut
-

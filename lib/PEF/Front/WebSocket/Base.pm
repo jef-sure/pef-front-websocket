@@ -8,6 +8,9 @@ use strict;
 sub close {
 	my $self = $_[0];
 	return if $self->{closed};
+	if (my $qclient = PEF::Front::WebSocket::queue_server_client()) {
+		$qclient->unregister_client($self);
+	}
 	my $handle = $self->{handle};
 	$handle->on_drain;
 	$handle->on_eof;
@@ -27,12 +30,24 @@ sub close {
 }
 
 sub publish {
+	my ($self, $queue, $id_message, $message) = @_;
+	if (my $qclient = PEF::Front::WebSocket::queue_server_client()) {
+		$qclient->publish($queue, $id_message, $message);
+	}
 }
 
 sub subscribe {
+	my ($self, $queue, $last_id) = @_;
+	if (my $qclient = PEF::Front::WebSocket::queue_server_client()) {
+		$qclient->publish($queue, $self, $last_id);
+	}
 }
 
 sub unsubscribe {
+	my ($self, $queue) = @_;
+	if (my $qclient = PEF::Front::WebSocket::queue_server_client()) {
+		$qclient->unsubscribe($queue, $self);
+	}
 }
 
 sub is_defunct {

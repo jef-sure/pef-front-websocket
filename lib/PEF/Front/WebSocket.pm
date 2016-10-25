@@ -26,17 +26,16 @@ my $server_client;
 my $server_client_pid;
 
 my %config = (
-	heartbeat_interval   => 30,
-	max_payload_size     => 262144,
-	deflate_minimum_size => 96,
-	deflate_window_bits  => 12,
-	deflate_memory_level => 5,
-	queue_server_port    => cfg_project_dir()
-	  . "/var/cache/websocket_queue_server.sock",
+	heartbeat_interval         => 30,
+	max_payload_size           => 262144,
+	deflate_minimum_size       => 96,
+	deflate_window_bits        => 12,
+	deflate_memory_level       => 5,
+	queue_server_port          => cfg_project_dir() . "/var/cache/websocket_queue_server.sock",
 	queue_server_address       => "unix/",
 	queue_no_client_expiration => 900,
 	queue_message_expiration   => 3600,
-	queue_reload_message       => { result => 'RELOAD' },
+	queue_reload_message       => {result => 'RELOAD'},
 );
 
 sub queue_server_client {
@@ -45,32 +44,31 @@ sub queue_server_client {
 }
 
 sub handler {
-	if ( $server_slave && ! queue_server_client ) {
+	if ($server_slave && !queue_server_client) {
 		$server_client = PEF::Front::WebSocket::QueueClient->new(
 			address => $config{queue_server_address},
 			port    => $config{queue_server_port}
 		);
 		$server_client_pid = $$;
 	}
-	no warnings 'redefine';
-	*handler = \&real_handler;
+	PEF::Front::Route::add_prefix_handler('ws', \&real_handler);
 	goto &real_handler;
 }
 
 BEGIN {
-	PEF::Front::Route::add_prefix_handler( 'ws', \&handler );
-	for my $cfg_key ( keys %config ) {
-		my $ref = "PEF::Front::Config"->can( "cfg_websocket_" . $cfg_key );
+	PEF::Front::Route::add_prefix_handler('ws', \&handler);
+	for my $cfg_key (keys %config) {
+		my $ref = "PEF::Front::Config"->can("cfg_websocket_" . $cfg_key);
 		$config{$cfg_key} = $ref->() if $ref;
 	}
 }
 
-sub deflate_minimum_size () { $config{deflate_minimum_size} }
+sub deflate_minimum_size () {$config{deflate_minimum_size}}
 
 sub import {
-	my ( $package, @args ) = @_;
-	if ( grep { $_ eq "queue_server" } @args ) {
-		if ( !$server_slave ) {
+	my ($package, @args) = @_;
+	if (grep {$_ eq "queue_server"} @args) {
+		if (!$server_slave) {
 			require AnyEvent::Fork;
 			start_queue_server();
 		}
@@ -78,7 +76,7 @@ sub import {
 }
 
 sub real_handler {
-	my ( $request, $context ) = @_;
+	my ($request, $context) = @_;
 	my $mrf = $context->{method};
 	$mrf =~ s/ ([[:lower:]])/\u$1/g;
 	$mrf = ucfirst($mrf);
@@ -87,15 +85,15 @@ sub real_handler {
 	eval {
 		no strict 'refs';
 
-		if ( not %{ $class . "::" } ) {
+		if (not %{$class . "::"}) {
 			eval "use $class";
 			die {
 				result      => 'INTERR',
 				answer      => 'Websocket class loading error: $1',
 				answer_args => $@
-			  }
-			  if $@;
-			if ( not %{ $class . "::" } ) {
+				}
+				if $@;
+			if (not %{$class . "::"}) {
 				die {
 					result      => 'INTERR',
 					answer      => 'Websocket class loading error: $1',
@@ -103,27 +101,24 @@ sub real_handler {
 				};
 			}
 		}
-		$websocket = prepare_websocket( $class, $request );
+		$websocket = prepare_websocket($class, $request);
 	};
 	if ($@) {
 		my $response = $@;
-		$response = { answer => $@ } if not ref $response;
-		my $http_response =
-		  PEF::Front::Response->new( request => $request, status => 500 );
+		$response = {answer => $@} if not ref $response;
+		my $http_response = PEF::Front::Response->new(request => $request, status => 500);
 		my $args = [];
 		$args = $response->{answer_args}
-		  if exists $response->{answer_args}
-		  and 'ARRAY' eq ref $response->{answer_args};
-		$response->{answer} =
-		  msg_get( $context->{lang}, $response->{answer}, @$args )->{message};
-		$http_response->set_body( $response->{answer} );
+			if exists $response->{answer_args}
+			and 'ARRAY' eq ref $response->{answer_args};
+		$response->{answer} = msg_get($context->{lang}, $response->{answer}, @$args)->{message};
+		$http_response->set_body($response->{answer});
 		cfg_log_level_error
-		  && $request->logger->(
-			{
-				level   => "error",
+			&& $request->logger->(
+			{   level   => "error",
 				message => "websocket error: $response->{answer}"
 			}
-		  );
+			);
 		return $http_response->response();
 	}
 	async {
@@ -134,16 +129,16 @@ sub real_handler {
 }
 
 sub _hs_to_string {
-	my ( $hs, $more_headers ) = @_;
+	my ($hs, $more_headers) = @_;
 	my $status = $hs->res->status;
 	my $string = '';
 	$string .= "HTTP/1.1 $status WebSocket Protocol Handshake\x0d\x0a";
 	my $headers = $hs->res->headers;
 	push @$headers, @$more_headers
-	  if $more_headers && ref $more_headers eq 'ARRAY';
-	for ( my $i = 0 ; $i < @$headers ; $i += 2 ) {
+		if $more_headers && ref $more_headers eq 'ARRAY';
+	for (my $i = 0; $i < @$headers; $i += 2) {
 		my $key   = $headers->[$i];
-		my $value = $headers->[ $i + 1 ];
+		my $value = $headers->[$i + 1];
 		$string .= "$key: $value\x0d\x0a";
 	}
 	$string .= "\x0d\x0a";
@@ -152,25 +147,24 @@ sub _hs_to_string {
 }
 
 sub prepare_websocket {
-	my ( $class, $request ) = @_;
+	my ($class, $request) = @_;
 	my $fh = $request->env->{'psgix.io'}
-	  or die {
+		or die {
 		result => 'INTERR',
 		answer => "Server doesn't support raw IO"
-	  };
-	my $hs =
-	  Protocol::WebSocket::Handshake::Server->new_from_psgi( $request->env );
+		};
+	my $hs = Protocol::WebSocket::Handshake::Server->new_from_psgi($request->env);
 	$hs->parse($fh)
-	  or die {
+		or die {
 		result => 'INTERR',
 		answer => 'Websocket protocol handshake error'
-	  };
-	if ( not $class->isa('PEF::Front::WebSocket::Base') ) {
+		};
+	if (not $class->isa('PEF::Front::WebSocket::Base')) {
 		no strict 'refs';
-		unshift @{ $class . "::ISA" }, 'PEF::Front::WebSocket::Base';
+		unshift @{$class . "::ISA"}, 'PEF::Front::WebSocket::Base';
 	}
 	my $ws = bless {
-		handle    => AnyEvent::Handle->new( fh => $fh ),
+		handle    => AnyEvent::Handle->new(fh => $fh),
 		request   => $request,
 		handshake => $hs,
 	}, $class;
@@ -178,25 +172,24 @@ sub prepare_websocket {
 	$exts = [$exts] if not ref $exts;
 	my $is_deflate = 0;
 	for my $e (@$exts) {
-		if ( $e =~ /permessage-deflate/i ) {
+		if ($e =~ /permessage-deflate/i) {
 			$is_deflate = 1;
 			last;
 		}
 	}
 	my $more_headers;
-	if ( $is_deflate
-		&& ( !$ws->can("no_compression") || !$ws->no_compression ) )
+	if ($is_deflate
+		&& (!$ws->can("no_compression") || !$ws->no_compression))
 	{
 		$ws->{deflate} ||= Compress::Raw::Zlib::Deflate->new(
 			AppendOutput => 1,
 			MemLevel     => $config{deflate_memory_level},
 			WindowBits   => -$config{deflate_window_bits},
 		);
-		$ws->{inflate} ||=
-		  Compress::Raw::Zlib::Inflate->new( WindowBits => -15 );
-		$more_headers = [ 'Sec-WebSocket-Extensions', 'permessage-deflate' ];
+		$ws->{inflate} ||= Compress::Raw::Zlib::Inflate->new(WindowBits => -15);
+		$more_headers = ['Sec-WebSocket-Extensions', 'permessage-deflate'];
 	}
-	my $finish_handshake = _hs_to_string( $hs, $more_headers );
+	my $finish_handshake = _hs_to_string($hs, $more_headers);
 	$ws->{handle}->push_write($finish_handshake);
 	$ws->{handle}->on_drain(
 		sub {
@@ -212,27 +205,25 @@ sub prepare_websocket {
 }
 
 sub setup_websocket {
-	my $ws = $_[0];
-	my $frame =
-	  Protocol::WebSocket::Frame->new(
-		max_payload_size => $config{max_payload_size} );
+	my $ws       = $_[0];
+	my $frame    = Protocol::WebSocket::Frame->new(max_payload_size => $config{max_payload_size});
 	my $on_error = sub {
-		my ( $handle, $fatal, $message ) = @_;
+		my ($handle, $fatal, $message) = @_;
 		$ws->{error} = 1;
 		$ws->on_error($message);
 	};
 	$ws->{handle}->on_eof($on_error);
 	$ws->{handle}->on_error($on_error);
-	$ws->{handle}->on_timeout( sub { } );
+	$ws->{handle}->on_timeout(sub { });
 	$ws->{handle}->on_read(
 		sub {
-			$frame->append( $_[0]->rbuf );
+			$frame->append($_[0]->rbuf);
 			my $message = $frame->next_bytes;
-			if ( $frame->is_close ) {
+			if ($frame->is_close) {
 				$ws->close;
 				return;
 			}
-			if ( $frame->is_ping ) {
+			if ($frame->is_ping) {
 				$ws->{handle}->push_write(
 					Protocol::WebSocket::Frame->new(
 						type    => 'pong',
@@ -244,31 +235,28 @@ sub setup_websocket {
 			}
 			if (   $message
 				&& $frame->fin
-				&& ( $frame->is_binary || $frame->is_text ) )
+				&& ($frame->is_binary || $frame->is_text))
 			{
-				if ( ( my $inflate = $ws->{inflate} ) && $frame->rsv->[0] ) {
-					my $status =
-					  $inflate->inflate( \( $message .= "\x00\x00\xff\xff" ),
-						my $out );
-					if ( $status != Z_OK && $status != Z_STREAM_END ) {
+				if ((my $inflate = $ws->{inflate}) && $frame->rsv->[0]) {
+					my $status = $inflate->inflate(\($message .= "\x00\x00\xff\xff"), my $out);
+					if ($status != Z_OK && $status != Z_STREAM_END) {
 						cfg_log_level_error
-						  && $ws->{request}->logger->(
-							{
-								level   => "error",
+							&& $ws->{request}->logger->(
+							{   level   => "error",
 								message => "websocket inflate error"
 							}
-						  );
+							);
 						$ws->on_error("inflate error");
 						return;
 					}
 					$message = $out;
 				}
 				my $type = 'binary';
-				if ( $frame->is_text ) {
+				if ($frame->is_text) {
 					utf8::decode($message);
 					$type = 'text';
 				}
-				$ws->on_message( $message, $type );
+				$ws->on_message($message, $type);
 				$message = '';
 			}
 		}
@@ -276,7 +264,7 @@ sub setup_websocket {
 	$ws->{heartbeat} = AnyEvent->timer(
 		interval => $config{heartbeat_interval},
 		cb       => sub {
-			if ( $ws->{handle} && !$ws->is_defunct ) {
+			if ($ws->{handle} && !$ws->is_defunct) {
 				$ws->{handle}->push_write(
 					Protocol::WebSocket::Frame->new(
 						type    => 'ping',
@@ -291,25 +279,21 @@ sub setup_websocket {
 }
 
 sub start_queue_server {
-	my $cv = AnyEvent->condvar();
-	my $server =
-	  AnyEvent::Fork->new->require('PEF::Front::WebSocket::QueueServer')
-	  ->send_arg(
-		$config{queue_server_address},
-		$config{queue_server_port},
-		$config{queue_no_client_expiration},
-		$config{queue_message_expiration},
-		encode_cbor( $config{queue_reload_message} )
-	  )->run(
+	my $cv     = AnyEvent->condvar();
+	my $server = AnyEvent::Fork->new->require('PEF::Front::WebSocket::QueueServer')->send_arg(
+		$config{queue_server_address},       $config{queue_server_port},
+		$config{queue_no_client_expiration}, $config{queue_message_expiration},
+		encode_cbor($config{queue_reload_message})
+		)->run(
 		'PEF::Front::WebSocket::QueueServer::run',
 		sub {
 			$server_slave = $_[0];
 			$cv->send;
 		}
-	  );
+		);
 	$cv->recv;
 	Coro::AnyEvent::readable $server_slave;    # block until child is ready
-	read( $server_slave, my $buf, 1 );
+	read($server_slave, my $buf, 1);
 }
 
 1;

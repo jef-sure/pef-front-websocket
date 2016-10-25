@@ -25,11 +25,16 @@ WriteMakefile(
 		'Data::Dumper'        => 0,
 		'Errno'               => 0,
 		'PEF::Front'          => 0.09,
+		'Compress::Raw::Zlib' => 0,
 		'Protocol::WebSocket' => 0.20,
 	},
-	TEST_REQUIRES => {'Test::More' => 0},
-	test          => {TESTS        => "t/*.t"},
-	dist          => {
+	TEST_REQUIRES => {
+		'Test::More'            => 0,
+		'Data::Structure::Util' => 0,
+		'Clone'                 => 0
+	},
+	test => {TESTS => "t/*.t"},
+	dist => {
 		DIST_DEFAULT => 'all tardist',
 		COMPRESS     => 'gzip -vf',
 		SUFFIX       => '.gz',
