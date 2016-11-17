@@ -18,7 +18,7 @@ use Errno;
 use warnings;
 use strict;
 
-our $VERSION = "0.02";
+our $VERSION = "0.03";
 use Data::Dumper;
 
 my $server_slave;
@@ -147,10 +147,10 @@ sub prepare_websocket {
 		unshift @{$class . "::ISA"}, 'PEF::Front::WebSocket::Base';
 	}
 	my $ws = bless {
-		handle    => AnyEvent::Handle->new(fh => $fh),
-		request   => $request,
-		handshake => $hs,
-		context   => $context,
+		_handle    => AnyEvent::Handle->new(fh => $fh),
+		_request   => $request,
+		_handshake => $hs,
+		_context   => $context,
 	}, $class;
 	my $exts = $request->header('Sec-WebSocket-Extensions');
 	$exts = [$exts] if not ref $exts;
@@ -165,16 +165,16 @@ sub prepare_websocket {
 	if ($is_deflate
 		&& (!$ws->can("no_compression") || !$ws->no_compression))
 	{
-		$ws->{deflate} ||= Compress::Raw::Zlib::Deflate->new(
+		$ws->{_deflate} ||= Compress::Raw::Zlib::Deflate->new(
 			AppendOutput => 1,
 			MemLevel     => $config{deflate_memory_level},
 			WindowBits   => -$config{deflate_window_bits},
 		);
-		$ws->{inflate} ||= Compress::Raw::Zlib::Inflate->new(WindowBits => -15);
+		$ws->{_inflate} ||= Compress::Raw::Zlib::Inflate->new(WindowBits => -15);
 		$more_headers = ['Sec-WebSocket-Extensions', 'permessage-deflate'];
 	}
 	my $finish_handshake = _hs_to_string($hs, $more_headers);
-	$ws->{handle}->push_write($finish_handshake);
+	$ws->{_handle}->push_write($finish_handshake);
 	$ws;
 }
 
@@ -197,27 +197,27 @@ sub setup_websocket {
 }
 
 sub real_setup_websocket {
-	my $ws       = $_[0];
-	$ws->{handle}->on_drain(
+	my $ws = $_[0];
+	$ws->{_handle}->on_drain(
 		sub {
-			$ws->{handle}->on_drain(
+			$ws->{_handle}->on_drain(
 				sub {
-					$ws->on_drain if delete $ws->{expected_drain};
+					$ws->on_drain if delete $ws->{_expected_drain};
 				}
 			);
 			$ws->on_open;
 		}
 	);
-	my $frame    = Protocol::WebSocket::Frame->new(max_payload_size => $config{max_payload_size});
+	my $frame = Protocol::WebSocket::Frame->new(max_payload_size => $config{max_payload_size});
 	my $on_error = sub {
 		my ($handle, $fatal, $message) = @_;
-		$ws->{error} = 1;
+		$ws->{_error} = 1;
 		$ws->on_error($message);
 	};
-	$ws->{handle}->on_eof($on_error);
-	$ws->{handle}->on_error($on_error);
-	$ws->{handle}->on_timeout(sub { });
-	$ws->{handle}->on_read(
+	$ws->{_handle}->on_eof($on_error);
+	$ws->{_handle}->on_error($on_error);
+	$ws->{_handle}->on_timeout(sub { });
+	$ws->{_handle}->on_read(
 		sub {
 			$frame->append($_[0]->rbuf);
 			my $message = $frame->next_bytes;
@@ -226,11 +226,11 @@ sub real_setup_websocket {
 				return;
 			}
 			if ($frame->is_ping) {
-				$ws->{handle}->push_write(
+				$ws->{_handle}->push_write(
 					Protocol::WebSocket::Frame->new(
 						type    => 'pong',
 						buffer  => $message,
-						version => $ws->{handshake}->version,
+						version => $ws->{_handshake}->version,
 					)->to_bytes
 				);
 				return;
@@ -239,11 +239,11 @@ sub real_setup_websocket {
 				&& $frame->fin
 				&& ($frame->is_binary || $frame->is_text))
 			{
-				if ((my $inflate = $ws->{inflate}) && $frame->rsv->[0]) {
+				if ((my $inflate = $ws->{_inflate}) && $frame->rsv->[0]) {
 					my $status = $inflate->inflate(\($message .= "\x00\x00\xff\xff"), my $out);
 					if ($status != Z_OK && $status != Z_STREAM_END) {
 						cfg_log_level_error
-							&& $ws->{request}->logger->(
+							&& $ws->{_request}->logger->(
 							{   level   => "error",
 								message => "websocket inflate error"
 							}
@@ -263,15 +263,15 @@ sub real_setup_websocket {
 			}
 		}
 	);
-	$ws->{heartbeat} = AnyEvent->timer(
+	$ws->{_heartbeat} = AnyEvent->timer(
 		interval => $config{heartbeat_interval},
 		cb       => sub {
-			if ($ws->{handle} && !$ws->is_defunct) {
-				$ws->{handle}->push_write(
+			if ($ws->{_handle} && !$ws->is_defunct) {
+				$ws->{_handle}->push_write(
 					Protocol::WebSocket::Frame->new(
 						type    => 'ping',
 						buffer  => 'ping',
-						version => $ws->{handshake}->version,
+						version => $ws->{_handshake}->version,
 					)->to_bytes
 				);
 			}

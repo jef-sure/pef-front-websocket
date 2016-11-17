@@ -7,27 +7,27 @@ use strict;
 
 sub close {
 	my $self = $_[0];
-	return if $self->{closed};
+	return if $self->{_closed};
 	if (my $qclient = PEF::Front::WebSocket::queue_server_client()) {
 		$qclient->unregister_client($self);
 	}
-	my $handle = $self->{handle};
-	return if ! $handle;
+	my $handle = $self->{_handle};
+	return if !$handle;
 	$handle->on_drain;
 	$handle->on_eof;
 	$handle->on_read;
-	if (not $self->{error} and not $self->{closed}) {
+	if (not $self->{_error} and not $self->{_closed}) {
 		$handle->push_write(
 			Protocol::WebSocket::Frame->new(
 				type    => 'close',
-				version => $self->{handshake}->version
+				version => $self->{_handshake}->version
 			)->to_bytes
 		);
 		$handle->push_shutdown;
 	}
-	$self->on_close if not $self->{closed};
-	delete $self->{handle};
-	$self->{closed} = 1;
+	$self->on_close if not $self->{_closed};
+	delete $self->{_handle};
+	$self->{_closed} = 1;
 }
 
 sub publish {
@@ -53,33 +53,33 @@ sub unsubscribe {
 
 sub is_defunct {
 	my $self = $_[0];
-	return $self->{error} || $self->{closed} || 0;
+	return $self->{_error} || $self->{_closed} || 0;
 }
 
 sub send {
 	my ($self, $message, $type) = @_;
-	return if $self->{closed} || $self->{error};
+	return if $self->is_defunct;
 	$type ||= 'text';
 	if ($type eq 'text') {
 		utf8::encode($message);
 	}
-	$self->{expected_drain} = 1;
+	$self->{_expected_drain} = 1;
 	my @rsv = ();
 	if (   ($type eq 'text' || $type eq 'binary')
 		&& length($message) >= PEF::Front::WebSocket::deflate_minimum_size()
-		&& (my $deflate = $self->{deflate}))
+		&& (my $deflate = $self->{_deflate}))
 	{
 		$deflate->deflate(\$message, my $out);
 		$deflate->flush($out, Z_SYNC_FLUSH);
 		$message = substr($out, 0, -4);
 		@rsv = (rsv => [1, 0, 0]);
 	}
-	$self->{handle}->push_write(
+	$self->{_handle}->push_write(
 		Protocol::WebSocket::Frame->new(
 			buffer           => $message,
 			type             => $type,
 			max_payload_size => length($message),
-			version          => $self->{handshake}->version,
+			version          => $self->{_handshake}->version,
 			@rsv
 		)->to_bytes
 	);
