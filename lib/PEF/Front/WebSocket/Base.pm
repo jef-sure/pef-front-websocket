@@ -12,7 +12,8 @@ sub close {
 		$qclient->unregister_client($self);
 	}
 	my $handle = $self->{_handle};
-	return if !$handle;
+	my $hs     = $self->{_handshake};
+	return if !$handle || !$hs;
 	$handle->on_drain;
 	$handle->on_eof;
 	$handle->on_read;
@@ -20,7 +21,7 @@ sub close {
 		$handle->push_write(
 			Protocol::WebSocket::Frame->new(
 				type    => 'close',
-				version => $self->{_handshake}->version
+				version => $hs->version
 			)->to_bytes
 		);
 		$handle->push_shutdown;
