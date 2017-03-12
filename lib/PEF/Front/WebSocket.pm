@@ -18,7 +18,7 @@ use Errno;
 use warnings;
 use strict;
 
-our $VERSION = "0.05";
+our $VERSION = "0.06";
 use Data::Dumper;
 
 my $server_slave;

@@ -1,3 +1,5 @@
+0.06 Tue, 12 Mar 2017 16:20:00 GMT
+         - fix QueueClient
 0.05 Tue, 16 Jan 2017 16:20:00 GMT
          - fix dependencies in Makefile.PL
 0.03 Tue, 25 Oct 2016 16:20:00 GMT

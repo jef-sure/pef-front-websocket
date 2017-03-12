@@ -110,8 +110,8 @@ sub new {
 				my ($fh) = @_;
 				$self->{handle} = AnyEvent::Handle->new(
 					fh       => $fh,
-					on_eof   => sub {self->on_disconnect(@_)},
-					on_error => sub {self->on_disconnect(@_)},
+					on_eof   => sub {$self->on_disconnect(@_)},
+					on_error => sub {$self->on_disconnect(@_)},
 				);
 				$self->{handle}->push_read(cbor => sub {$self->on_queue(@_)});
 				$cv->send;
